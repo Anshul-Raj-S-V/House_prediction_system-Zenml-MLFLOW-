@@ -1,37 +1,47 @@
 import os
+from zenml import pipeline
+from zenml.integrations.mlflow.steps import mlflow_model_deployer_step
 
+# Import your custom steps
 from pipelines.training_pipelines import ml_pipeline
 from steps.dynamic_importer import dynamic_importer
 from steps.model_loader_step import model_loader
 from steps.prediction_service_loader import prediction_service_loader
 from steps.predictor import predictor
-from zenml import pipeline
-from zenml.integrations.mlflow.steps import mlflow_model_deployer_step
 
+# Optional: specify requirements for reproducibility
 requirements_file = os.path.join(os.path.dirname(__file__), "requirements.txt")
 
 
-@pipeline
+@pipeline(enable_cache=False)
 def continuous_deployment_pipeline():
-    """Run a training job and deploy an MLflow model deployment."""
-    # Run the training pipeline
-    trained_model = ml_pipeline()  # No need for is_promoted return value anymore
+    """
+    Run a training job and (re)deploy an MLflow model deployment.
+    """
+    # Run your training pipeline
+    trained_model = ml_pipeline()
 
-    # (Re)deploy the trained model
-    mlflow_model_deployer_step(workers=3, deploy_decision=True, model=trained_model)
+    # Deploy the trained model with MLflow
+    mlflow_model_deployer_step(
+        model=trained_model,
+        workers=1,  # Windows can't handle multiple MLflow workers easily
+        deploy_decision=True
+    )
 
 
 @pipeline(enable_cache=False)
 def inference_pipeline():
-    """Run a batch inference job with data loaded from an API."""
-    # Load batch data for inference
+    """
+    Run a batch inference job with data loaded dynamically.
+    """
+    # Load data for inference
     batch_data = dynamic_importer()
 
-    # Load the deployed model service
+    # Load the deployed MLflow model service
     model_deployment_service = prediction_service_loader(
         pipeline_name="continuous_deployment_pipeline",
-        step_name="mlflow_model_deployer_step",
+        step_name="mlflow_model_deployer_step"
     )
 
-    # Run predictions on the batch data
+    # Run predictions using the deployed model
     predictor(service=model_deployment_service, input_data=batch_data)
